@@ -2,11 +2,11 @@
 <html lang="mn">
 <head>
 <meta charset="utf-8">
-<title>GLB Loader</title>
+<title>GLB VR Loader</title>
 <style>
     body { margin:0; overflow:hidden; }
     canvas { display:block; }
-  </style>
+</style>
 <script type="importmap">
 {
 "imports":{
@@ -25,37 +25,43 @@ import { VRButton } from "three/addons/webxr/VRButton.js";
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x202025);
 
-// Камер
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 1.6, 3); // Хүний өндрөөр байрлуулах
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
+// VR-гүй үед камерын байрлал
+camera.position.set(0, 1.6, 3);
 
-// Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
+// VR-д шалны түвшинг мэдрүүлэх хамгийн чухал хэсэг
+renderer.xr.setReferenceSpaceType('local-floor'); 
 document.body.appendChild(renderer.domElement);
 
-// VR товчлуур
 document.body.appendChild(VRButton.createButton(renderer));
 
-// Тусгай гэрэл
-const light = new THREE.HemisphereLight(0xffffff, 0x444444);
-light.position.set(0, 20, 0);
-scene.add(light);
-
+// Гэрэлтүүлэг
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444));
 const dirLight = new THREE.DirectionalLight(0xffffff);
 dirLight.position.set(3, 10, 10);
 scene.add(dirLight);
 
-function createCable(start, end, color = 0xffff00) {
+// Кабель үүсгэх функцийг сайжруулав (Төв цэг тооцоолох)
+function createCable(obj1, obj2, color = 0xffff00) {
+    if (!obj1 || !obj2) return;
+
+    const start = new THREE.Vector3();
+    const end = new THREE.Vector3();
+
+    // Объектуудын төв цэгийг Дэлхийн координатаар авах
+    new THREE.Box3().setFromObject(obj1).getCenter(start);
+    new THREE.Box3().setFromObject(obj2).getCenter(end);
+
     const distance = start.distanceTo(end);
-    const geometry = new THREE.CylinderGeometry(0.02, 0.02, distance, 8);
+    const geometry = new THREE.CylinderGeometry(0.01, 0.01, distance, 8);
     const material = new THREE.MeshStandardMaterial({ color: color });
     const cable = new THREE.Mesh(geometry, material);
 
     const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
     cable.position.copy(midpoint);
-
     cable.lookAt(end);
     cable.rotateX(Math.PI / 2); 
 
@@ -68,58 +74,42 @@ loader.load(
   function (gltf) {
     const model = gltf.scene;
 
-    // Загварын бүх Object-уудыг шал дээр байрлуулах
-    const box = new THREE.Box3().setFromObject(model); // Загварын хэмжээ
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const minY = box.min.y;
+    // Моделийг шалан дээр яг тааруулж байрлуулах
+    const box = new THREE.Box3().setFromObject(model);
+    const center = new THREE.Vector3();
+    box.getCenter(center);
 
-    // // Загварын доод хэсгийг Y=0 дээр байрлуулах
-    // model.position.set(0, -minY, -1); // Z = -1 хэрэглэгчээс 1м урд
-    // model.scale.set(1, 1, 1);
+    // Моделийн доод ирмэгийг Y=0 (шал) болгож, хэрэглэгчийн урд байрлуулах
+    model.position.x = -center.x;
+    model.position.y = -box.min.y; 
+    model.position.z = -center.z - 2; 
 
     scene.add(model);
 
-    // // Кабель үүсгэх
-    // const router = model.getObjectByName("router");
-    // const switch1 = model.getObjectByName("switch");
-    // const pc1 = model.getObjectByName("komMouseKey1");
-    // const pc2 = model.getObjectByName("komMouseKey2");
+    // Объектуудыг нэрээр нь хайж холбох
+    // Тэмдэглэл: lab4.glb доторх нэрс нь router, switch гэх мэт байх ёстой
+    const router = model.getObjectByName("router");
+    const switch1 = model.getObjectByName("switch");
+    const pc1 = model.getObjectByName("komMouseKey1");
+    const pc2 = model.getObjectByName("komMouseKey2");
 
-    // if(router && switch1){
-    //     createCable(router.position, switch1.position, 0xff0000);
-    // }
-    // if(switch1 && pc1){
-    //     createCable(switch1.position, pc1.position, 0x00ff00);
-    // }
-    // if(switch1 && pc2){
-    //     createCable(switch1.position, pc2.position, 0x00ff00);
-    // }
+    if(router && switch1) createCable(router, switch1, 0xff0000);
+    if(switch1 && pc1) createCable(switch1, pc1, 0x00ff00);
+    if(switch1 && pc2) createCable(switch1, pc2, 0x00ff00);
 
-    console.log('GLB файл ачааллаа, кабель нэмсэн');
-  },
-  undefined,
-  function (error) {
-    console.error('GLB файл ачаалж чадсангүй:', error);
+    console.log('Модель болон кабель амжилттай байрлалаа');
   }
 );
 
-function animate() {
-  renderer.setAnimationLoop(render);
-}
-
-function render() {
+renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
-}
+});
 
-animate();
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
 </script>
-
 </body>
 </html>
