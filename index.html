@@ -27,7 +27,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x202025);
 
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 1.6, 5); // Камерын эхлэх байрлал
+camera.position.set(0, 1.6, 5); 
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -78,10 +78,10 @@ loader.load("./lab4.glb", function (gltf) {
 
     scene.add(model);
 
-    // Кабель холбох хэсэг
-    const router = model.getObjectByName("router");
-    const switch1 = model.getObjectByName("switch");
-    if(router && switch1) createCable(router, switch1, 0xff0000);
+    // // Кабель холбох хэсэг
+    // const router = model.getObjectByName("router");
+    // const switch1 = model.getObjectByName("switch");
+    // if(router && switch1) createCable(router, switch1, 0xff0000);
 });
 
 renderer.setAnimationLoop(() => {
@@ -97,3 +97,4 @@ window.addEventListener('resize', () => {
 </script>
 </body>
 </html>
+
