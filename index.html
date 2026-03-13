@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="mn">
+<head>
+<meta charset="utf-8">
+<title>GLB Loader</title>
+<style>
+    body { margin:0; overflow:hidden; }
+    canvas { display:block; }
+  </style>
+<script type="importmap">
+{
+"imports":{
+"three":"https://cdn.jsdelivr.net/npm/three@0.152.2/build/three.module.js",
+"three/addons/":"https://cdn.jsdelivr.net/npm/three@0.152.2/examples/jsm/"
+}
+}
+</script>
+</head>
+<body>
+<script type="module">
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+import { VRButton } from "three/addons/webxr/VRButton.js";
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x202025);
+
+// Камер
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 1.6, 3); // Хүний өндрөөр байрлуулах
+
+// Renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.xr.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+// VR товчлуур
+document.body.appendChild(VRButton.createButton(renderer));
+
+// Тусгай гэрэл
+const light = new THREE.HemisphereLight(0xffffff, 0x444444);
+light.position.set(0, 20, 0);
+scene.add(light);
+
+const dirLight = new THREE.DirectionalLight(0xffffff);
+dirLight.position.set(3, 10, 10);
+scene.add(dirLight);
+
+function createCable(start, end, color = 0xffff00) {
+    const distance = start.distanceTo(end);
+    const geometry = new THREE.CylinderGeometry(0.02, 0.02, distance, 8);
+    const material = new THREE.MeshStandardMaterial({ color: color });
+    const cable = new THREE.Mesh(geometry, material);
+
+    const midpoint = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+    cable.position.copy(midpoint);
+
+    cable.lookAt(end);
+    cable.rotateX(Math.PI / 2); 
+
+    scene.add(cable);
+}
+
+const loader = new GLTFLoader();
+loader.load(
+  "./lab4.glb",
+  function (gltf) {
+    const model = gltf.scene;
+
+    // Загварын бүх Object-уудыг шал дээр байрлуулах
+    const box = new THREE.Box3().setFromObject(model); // Загварын хэмжээ
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const minY = box.min.y;
+
+    // // Загварын доод хэсгийг Y=0 дээр байрлуулах
+    // model.position.set(0, -minY, -1); // Z = -1 хэрэглэгчээс 1м урд
+    // model.scale.set(1, 1, 1);
+
+    scene.add(model);
+
+    // // Кабель үүсгэх
+    // const router = model.getObjectByName("router");
+    // const switch1 = model.getObjectByName("switch");
+    // const pc1 = model.getObjectByName("komMouseKey1");
+    // const pc2 = model.getObjectByName("komMouseKey2");
+
+    // if(router && switch1){
+    //     createCable(router.position, switch1.position, 0xff0000);
+    // }
+    // if(switch1 && pc1){
+    //     createCable(switch1.position, pc1.position, 0x00ff00);
+    // }
+    // if(switch1 && pc2){
+    //     createCable(switch1.position, pc2.position, 0x00ff00);
+    // }
+
+    console.log('GLB файл ачааллаа, кабель нэмсэн');
+  },
+  undefined,
+  function (error) {
+    console.error('GLB файл ачаалж чадсангүй:', error);
+  }
+);
+
+function animate() {
+  renderer.setAnimationLoop(render);
+}
+
+function render() {
+  renderer.render(scene, camera);
+}
+
+animate();
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+</script>
+
+</body>
+</html>
