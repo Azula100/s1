@@ -3,26 +3,14 @@
 <head>
 <meta charset="utf-8">
 <title>VR Network Lab</title>
-
 <style>
-    html,body{
-    margin:0;
-    overflow:hidden;
-    background:#0b1220;
-    }
-
+    html,body{ margin:0; overflow:hidden; background:#0b1220; }
     #hud{
-    position:fixed;
-    top:10px;
-    left:10px;
-    color:white;
-    background:rgba(0,0,0,.6);
-    padding:10px;
-    border-radius:10px;
-    font-family:Arial;
+        position:fixed; top:10px; left:10px; color:white;
+        background:rgba(0,0,0,.6); padding:10px;
+        border-radius:10px; font-family:Arial;
     }
 </style>
-
 <script type="importmap">
 {
   "imports": {
@@ -32,214 +20,155 @@
 }
 </script>
 </head>
-
 <body>
-
-<div id="hud">
-<b>VR Network Lab</b><br>
-Router → Switch → PC1 / PC2
-</div>
+<div id="hud"><b>VR Network Lab</b><br>Router → Switch → PC1 / PC2</div>
 <script type="module">
 import * as THREE from "three";
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
 import {VRButton} from "three/addons/webxr/VRButton.js";
 import {OrbitControls} from "three/addons/controls/OrbitControls.js";
+
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x202025);
-const camera = new THREE.PerspectiveCamera(70,window.innerWidth/window.innerHeight,0.1,100);
-camera.position.set(0,1.6,3);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth/window.innerHeight, 0.1, 100);
+camera.position.set(0, 1.6, 3);
 
 const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(window.innerWidth,window.innerHeight);
+renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
-
 document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));
 
-const controls = new OrbitControls(camera,renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.target.set(0,1,0);
+controls.target.set(0, 1, 0);
 controls.update();
 
-const light = new THREE.HemisphereLight(0xffffff,0x444444,1);
-scene.add(light);
-
-const ambient = new THREE.AmbientLight(0xffffff,0.4);
-scene.add(ambient);
-
-const dirLight = new THREE.DirectionalLight(0xffffff,1);
-dirLight.position.set(3,10,10);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
+scene.add(new THREE.AmbientLight(0xffffff, 3));
+const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+dirLight.position.set(3, 10, 10);
 scene.add(dirLight);
 
 /* ===== board ===== */
 const boardGroup = new THREE.Group();
-const boardGeo = new THREE.BoxGeometry(1.5,0.5,0.05);
-const boardMat = new THREE.MeshStandardMaterial({color:0xffffff});
-const board = new THREE.Mesh(boardGeo,boardMat);
-const frameGeo = new THREE.BoxGeometry(1.55,0.55,0.03);
-const frameMat = new THREE.MeshStandardMaterial({color:0x222222});
-const frame = new THREE.Mesh(frameGeo,frameMat);
-frame.position.z = -0.02;
-boardGroup.add(frame,board);
-/* хананд байрлуулах */
-boardGroup.position.set(-1.4,1.5,0.05);
-/* самбарыг нааш харуулах */
-boardGroup.rotation.y = Math.PI/2;
+const board = new THREE.Mesh(
+    new THREE.BoxGeometry(1.5, 0.5, 0.05),
+    new THREE.MeshStandardMaterial({color: 0xffffff})
+);
+const frameB = new THREE.Mesh(
+    new THREE.BoxGeometry(1.55, 0.55, 0.03),
+    new THREE.MeshStandardMaterial({color: 0x222222})
+);
+frameB.position.z = -0.02;
+boardGroup.add(frameB, board);
+boardGroup.position.set(-1.4, 1.5, 0.05);
+boardGroup.rotation.y = Math.PI / 2;
 scene.add(boardGroup);
 
-/* ===== cable function ===== */
-function createCable(start,end,color){
-const direction = new THREE.Vector3().subVectors(end,start);
-const distance = direction.length();
-
-const geometry = new THREE.CylinderGeometry(0.02,0.02,distance,8);
-const material = new THREE.MeshStandardMaterial({color:color});
-
-const cable = new THREE.Mesh(geometry,material);
-
-const midpoint = new THREE.Vector3()
-.addVectors(start,end)
-.multiplyScalar(0.5);
-
-cable.position.copy(midpoint);
-
-cable.quaternion.setFromUnitVectors(
-new THREE.Vector3(0,1,0),
-direction.clone().normalize()
-);
-
-scene.add(cable);
+/* ===== cable ===== */
+function createCable(start, end, color) {
+    const dir = new THREE.Vector3().subVectors(end, start);
+    const dist = dir.length();
+    const cable = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.02, 0.02, dist, 8),
+        new THREE.MeshStandardMaterial({color})
+    );
+    cable.position.copy(new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5));
+    cable.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+    scene.add(cable);
+}
+function createWindow(texture) {
+    const group = new THREE.Group();
+    const frame = new THREE.Mesh(
+        new THREE.BoxGeometry(0.82, 0.62, 0.06),
+        new THREE.MeshStandardMaterial({color: 0x333333})
+    );
+    group.add(frame);
+    const glass = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.75, 0.55),
+        new THREE.MeshBasicMaterial({
+            map: texture,
+            side: THREE.DoubleSide
+        })
+    );
+    glass.position.z = 0.04; 
+    group.add(glass);
+    return group;
 }
 
-function createSimpleWindow() {
-    const winGroup = new THREE.Group();
-    // 1. Хүрээ (Frame)
-    const frameGeo = new THREE.BoxGeometry(0.8, 0.6, 0.05);
-    const frameMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-    const frame = new THREE.Mesh(frameGeo, frameMat);
-    winGroup.add(frame);
-    // 2. Шил (Glass) - Хүрээний яг голд байрлана
-    const glassGeo = new THREE.BoxGeometry(0.75, 0.55, 0.02);
-    const glassMat = new THREE.MeshPhysicalMaterial({
-        color: 0x88ccff,
-        transmission: 1,
-        transparent: true,
-        opacity: 0.5,
-        roughness: 0
-    });
-    const glass = new THREE.Mesh(glassGeo, glassMat);
-    // Шилийг хүрээнийх нь голд нэмнэ
-    winGroup.add(glass);
-    return winGroup;
-}
 const textureLoader = new THREE.TextureLoader();
-const texture1 = textureLoader.load('./image1.jpg', function ( texture ) {
-        // Зураг амжилттай ачаалагдсан үед ажиллана
+textureLoader.load(
+    './image1.jpg',
+    function(texture) {
         texture.colorSpace = THREE.SRGBColorSpace;
         console.log("Зураг амжилттай ачаалагдлаа!");
+        const win1 = createWindow(texture);
+        win1.position.set(-0.7, 1.6, -1.4);
+        scene.add(win1);
+        const win2 = createWindow(texture.clone ? texture : texture);
+        win2.position.set(0.3, 1.6, -1.4);
+        win2.rotation.y = 0; 
+        scene.add(win2);
+
+        const win3 = createWindow(texture);
+        win3.position.set(0.7, 1.6, 1.4);
+        win3.rotation.y = Math.PI;
+        scene.add(win3);
+        const win4 = createWindow(texture.clone ? texture : texture);
+        win4.position.set(-0.3, 1.6, 1.4);
+        win4.rotation.y = Math.PI; 
+        scene.add(win4);
     },
     undefined,
-    function ( err ) {
-        // Алдаа гарвал энд харагдана
-        console.error( "Зураг ачаалахад алдаа гарлаа: ", err );
-    });
-texture1.colorSpace = THREE.SRGBColorSpace;
-// 1. Эхний цонх
-const window1 = createSimpleWindow();
-window1.position.set(-0.7, 1.3, -1.45); 
-const glass1 = window1.children[1]; 
-glass1.material = new THREE.MeshBasicMaterial({
-    map: texture1,
-    transparent: true,
-    opacity: 1,
-    side: THREE.DoubleSide
-});
-scene.add(window1);
-// 2. Хоёрдахь цонх
-const window2 = createSimpleWindow();
-window2.position.set(0.7, 1.3, -1.45); 
-const glass2 = window2.children[1];
-glass2.material = new THREE.MeshBasicMaterial({
-    map: texture1,
-    transparent: true,
-    opacity: 1,
-    side: THREE.DoubleSide
-});
-scene.add(window2);
+    function(err) {
+        console.error("Зураг ачаалахад алдаа:", err);
+    }
+);
 
 const loader = new GLTFLoader();
-loader.load(
-"./lab4.glb",
+loader.load("./lab4.glb",
+    function(gltf) {
+        const model = gltf.scene;
+        const box = new THREE.Box3().setFromObject(model);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        model.position.y -= box.min.y;
+        model.position.x -= center.x;
+        model.position.z -= center.z;
+        scene.add(model);
 
-function(gltf){
+        const router  = model.getObjectByName("router");
+        const switch1 = model.getObjectByName("switch");
+        const pc1     = model.getObjectByName("pc1");
+        const pc2     = model.getObjectByName("pc2");
 
-const model = gltf.scene;
+        if (!router || !switch1 || !pc1 || !pc2) {
+            console.warn("Blender object name шалга"); return;
+        }
+        const r = new THREE.Vector3(); router.getWorldPosition(r);
+        const s = new THREE.Vector3(); switch1.getWorldPosition(s);
+        const p1 = new THREE.Vector3(); pc1.getWorldPosition(p1);
+        const p2 = new THREE.Vector3(); pc2.getWorldPosition(p2);
 
-const box = new THREE.Box3().setFromObject(model);
-const center = new THREE.Vector3();
-
-box.getCenter(center);
-
-model.position.y -= box.min.y;
-model.position.x -= center.x;
-model.position.z -= center.z;
-
-scene.add(model);
-
-const router = model.getObjectByName("router");
-const switch1 = model.getObjectByName("switch");
-const pc1 = model.getObjectByName("pc1");
-const pc2 = model.getObjectByName("pc2");
-
-if(!router || !switch1 || !pc1 || !pc2){
-console.warn("Blender object name шалга");
-return;
-}
-
-const r = new THREE.Vector3();
-const s = new THREE.Vector3();
-
-router.getWorldPosition(r);
-switch1.getWorldPosition(s);
-
-createCable(r,s,0xff0000);
-
-/* Switch → PC1 */
-
-const p1 = new THREE.Vector3();
-pc1.getWorldPosition(p1);
-
-createCable(s,p1,0x00ff00);
-
-/* Switch → PC2 */
-
-const p2 = new THREE.Vector3();
-pc2.getWorldPosition(p2);
-createCable(s,p2,0x00ff00);
-},
-undefined,
-function(error){
-console.error("GLB ачаалж чадсангүй",error);
-
-}
+        createCable(r, s, 0xff0000);
+        createCable(s, p1, 0x00ff00);
+        createCable(s, p2, 0x00ff00);
+    },
+    undefined,
+    (err) => console.error("GLB ачаалж чадсангүй", err)
 );
-function animate(){
-renderer.setAnimationLoop(render);
-}
 
-function render(){
-renderer.render(scene,camera);
-}
-
-animate();
-window.addEventListener("resize",()=>{
-camera.aspect = window.innerWidth/window.innerHeight;
-camera.updateProjectionMatrix();
-renderer.setSize(window.innerWidth,window.innerHeight);
-
+renderer.setAnimationLoop(() => {
+    controls.update();
+    renderer.render(scene, camera);
 });
 
+window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
 </script>
-
 </body>
 </html>
