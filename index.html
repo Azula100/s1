@@ -4,11 +4,50 @@
 <meta charset="utf-8">
 <title>VR Network Lab</title>
 <style>
-    html,body{ margin:0; overflow:hidden; background:#0b1220; }
+    html,body{ margin:0; overflow:hidden; background:#0b1220; font-family:'Segoe UI',Arial,sans-serif; }
     #hud{
         position:fixed; top:10px; left:10px; color:white;
-        background:rgba(0,0,0,.6); padding:10px;
-        border-radius:10px; font-family:Arial;
+        background:rgba(0,0,0,.75); padding:12px 16px;
+        border-radius:12px; font-size:13px; line-height:1.7;
+        border:1px solid rgba(0,200,255,0.3);
+        pointer-events:none; z-index:10;
+        max-width:280px;
+    }
+    #hud b { color:#00d4ff; }
+    #status{
+        position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+        color:white; background:rgba(0,0,0,.85); padding:10px 24px;
+        border-radius:20px; font-size:14px; z-index:10;
+        border:1px solid rgba(0,200,255,0.4);
+        transition: all 0.4s ease;
+        pointer-events:none;
+    }
+    #status.success { border-color:#00ff88; color:#00ff88; background:rgba(0,40,20,.9); }
+    #status.error   { border-color:#ff4444; color:#ff4444; }
+    #powerBtn{
+        position:fixed; top:10px; right:10px; z-index:20;
+        background:rgba(0,0,0,.8); border:2px solid #ff4444;
+        color:#ff4444; padding:10px 20px; border-radius:10px;
+        font-size:14px; cursor:pointer; transition:all 0.3s;
+    }
+    #powerBtn.on { border-color:#00ff88; color:#00ff88; }
+    #powerBtn:hover { transform:scale(1.05); }
+    #cablePanel{
+        position:fixed; top:10px; left:50%; transform:translateX(-50%);
+        display:flex; gap:8px; z-index:20;
+    }
+    .cableBtn{
+        background:rgba(0,0,0,.8); border:2px solid #888;
+        color:white; padding:8px 14px; border-radius:8px;
+        font-size:12px; cursor:pointer; transition:all 0.3s;
+    }
+    .cableBtn:hover { border-color:#00d4ff; color:#00d4ff; }
+    .cableBtn.active { border-color:#ffaa00; color:#ffaa00; background:rgba(30,20,0,.9); }
+    #tooltip{
+        position:fixed; bottom:60px; left:50%; transform:translateX(-50%);
+        color:#ffcc44; font-size:12px; background:rgba(0,0,0,.7);
+        padding:6px 14px; border-radius:8px; z-index:10;
+        pointer-events:none; display:none;
     }
 </style>
 <script type="importmap">
@@ -21,7 +60,30 @@
 </script>
 </head>
 <body>
-<div id="hud"><b>VR Network Lab</b><br>Router → Switch → PC1 / PC2</div>
+<div id="hud">
+    <b>🖧 VR Network Lab</b><br>
+    <span id="powerStatus">Router: Унтарсан</span><br>
+    <span id="cableStatus">Холболт: 0/3</span><br>
+    <span id="dataStatus">Өгөгдөл: Зогссон</span><br>
+    <hr style="border-color:rgba(255,255,255,.2);margin:6px 0">
+    <small>
+        [P] Router асаах/унтраах<br>
+        [1] Router→Switch кабель<br>
+        [2] Switch→PC1 кабель<br>
+        [3] Switch→PC2 кабель<br>
+        Объект дээр <b>Click</b> → холбох
+    </small>
+</div>
+<div id="status">Router-г эхлээд асаана уу [P]</div>
+<div id="tooltip"></div>
+<button id="powerBtn" onclick="togglePower()">⚡ Router Асаах</button>
+<div id="cablePanel">
+    <button class="cableBtn" id="btn1" onclick="selectCable(1)">🔴 Router→Switch</button>
+    <button class="cableBtn" id="btn2" onclick="selectCable(2)">🟢 Switch→PC1</button>
+    <button class="cableBtn" id="btn3" onclick="selectCable(3)">🔵 Switch→PC2</button>
+    <button class="cableBtn" onclick="resetCables()" style="border-color:#ff6666;color:#ff6666">🗑 Арилгах</button>
+</div>
+
 <script type="module">
 import * as THREE from "three";
 import {GLTFLoader} from "three/addons/loaders/GLTFLoader.js";
@@ -49,7 +111,19 @@ scene.add(new THREE.AmbientLight(0xffffff, 3));
 const dirLight = new THREE.DirectionalLight(0xffffff, 1);
 dirLight.position.set(3, 10, 10);
 scene.add(dirLight);
-
+// ===== STATE =====
+const state = {
+    routerOn: false,
+    cables: { rs: false, sp1: false, sp2: false },
+    activeCable: null,
+    nodes: { router: null, switch1: null, pc1: null, pc2: null },
+    positions: {},
+    packets: [],
+    powerCable: null,
+    powerLight: null,
+    socket: null,
+    indicators: {}
+};
 /* ===== board ===== */
 const boardGroup = new THREE.Group();
 const board = new THREE.Mesh(
@@ -78,6 +152,289 @@ function createCable(start, end, color) {
     cable.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
     scene.add(cable);
 }
+
+// ===== WALL SOCKET  =====
+function createWallSocket(position) {
+    const group = new THREE.Group();
+ 
+    const body = new THREE.Mesh(
+        new THREE.BoxGeometry(0.12, 0.12, 0.04),
+        new THREE.MeshStandardMaterial({color: 0xeeeecc})
+    );
+    group.add(body);
+    [-0.025, 0.025].forEach(ox => {
+        const hole = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.012, 0.012, 0.05, 8),
+            new THREE.MeshStandardMaterial({color: 0x111111})
+        );
+        hole.rotation.z = Math.PI/2;
+        hole.position.set(ox, 0, 0.01);
+        group.add(hole);
+    });
+    const ring = new THREE.Mesh(
+        new THREE.RingGeometry(0.07, 0.09, 16),
+        new THREE.MeshBasicMaterial({color: 0xff4444, side: THREE.DoubleSide, transparent:true, opacity:0})
+    );
+    ring.position.z = 0.025;
+    group.add(ring);
+    state.powerLight = ring;
+ 
+    group.position.copy(position);
+    scene.add(group);
+    state.socket = group;
+    return group;
+}
+createWallSocket(new THREE.Vector3(-1.38, 0.4, -0.2));
+ 
+// ===== CABLE CREATION =====
+function makeCableMesh(start, end, color, animated=false) {
+    const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
+    mid.y -= 0.15; 
+    const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
+    const points = curve.getPoints(40);
+    const geometry = new THREE.TubeGeometry(
+        new THREE.CatmullRomCurve3(points), 40, 0.015, 8, false
+    );
+    const mat = new THREE.MeshStandardMaterial({
+        color, emissive: animated ? color : 0x000000, emissiveIntensity: 0
+    });
+    const mesh = new THREE.Mesh(geometry, mat);
+    mesh.userData.animated = animated;
+    mesh.userData.color = color;
+    scene.add(mesh);
+    return mesh;
+}
+ 
+// ===== POWER CABLE =====
+function createPowerCable(routerPos) {
+    const socketPos = new THREE.Vector3(-1.38, 0.4, -0.2);
+    const start = new THREE.Vector3(routerPos.x - 0.15, routerPos.y - 0.05, routerPos.z);
+    if (state.powerCable) scene.remove(state.powerCable);
+    state.powerCable = makeCableMesh(start, socketPos, 0x333333);
+
+    const plug = new THREE.Mesh(
+        new THREE.BoxGeometry(0.05, 0.05, 0.05),
+        new THREE.MeshStandardMaterial({color: 0x222222})
+    );
+    plug.position.copy(socketPos);
+    plug.position.x += 0.06;
+    scene.add(plug);
+}
+ 
+// ===== NODE INDICATORS =====
+function addIndicator(pos, name) {
+    const light = new THREE.Mesh(
+        new THREE.SphereGeometry(0.04, 8, 8),
+        new THREE.MeshBasicMaterial({color: 0x444444})
+    );
+    light.position.set(pos.x, pos.y + 0.25, pos.z);
+    scene.add(light);
+    state.indicators[name] = light;
+    return light;
+}
+ 
+// ===== DATA PACKET ANIMATION =====
+function spawnPacket(from, to, color) {
+    const geom = new THREE.SphereGeometry(0.04, 8, 8);
+    const mat = new THREE.MeshBasicMaterial({color});
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.position.copy(from);
+    const glowGeom = new THREE.SphereGeometry(0.07, 8, 8);
+    const glowMat = new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.3});
+    const glow = new THREE.Mesh(glowGeom, glowMat);
+    mesh.add(glow);
+    scene.add(mesh);
+    state.packets.push({mesh, from: from.clone(), to: to.clone(), t: 0, speed: 0.008 + Math.random()*0.004});
+}
+ 
+function updatePackets(delta) {
+    for (let i = state.packets.length - 1; i >= 0; i--) {
+        const p = state.packets[i];
+        p.t += p.speed;
+        if (p.t >= 1) {
+            scene.remove(p.mesh);
+            state.packets.splice(i, 1);
+        } else {
+            p.mesh.position.lerpVectors(p.from, p.to, p.t);
+        }
+    }
+}
+ 
+let packetTimer = 0;
+function spawnNetworkPackets() {
+    if (!state.routerOn) return;
+    const p = state.positions;
+    const allConnected = state.cables.rs && state.cables.sp1 && state.cables.sp2;
+    if (allConnected && p.router && p.switch1 && p.pc1 && p.pc2) {
+        spawnPacket(p.router, p.switch1, 0xff3300);
+        setTimeout(() => {
+            if(state.cables.sp1) spawnPacket(p.switch1.clone(), p.pc1.clone(), 0x00ff88);
+        }, 400);
+        setTimeout(() => {
+            spawnPacket(p.router.clone(), p.switch1.clone(), 0xff6600);
+            setTimeout(() => {
+                if(state.cables.sp2) spawnPacket(p.switch1.clone(), p.pc2.clone(), 0x0088ff);
+            }, 400);
+        }, 800);
+    } else {
+        if (state.cables.rs && p.router && p.switch1) {
+            spawnPacket(p.router.clone(), p.switch1.clone(), 0xff3300);
+        }
+    }
+}
+ 
+// ===== CABLE LINE OBJECTS (draggable logic simplified to click-based) =====
+const cableObjects = { rs: null, sp1: null, sp2: null };
+const COLORS = { rs: 0xff2200, sp1: 0x00cc44, sp2: 0x2266ff };
+ 
+function drawCable(key) {
+    const p = state.positions;
+    if (!p.router || !p.switch1 || !p.pc1 || !p.pc2) return;
+    if (cableObjects[key]) { scene.remove(cableObjects[key]); cableObjects[key] = null; }
+    let start, end;
+    if (key === 'rs')  { start = p.router.clone();  end = p.switch1.clone(); }
+    if (key === 'sp1') { start = p.switch1.clone(); end = p.pc1.clone(); }
+    if (key === 'sp2') { start = p.switch1.clone(); end = p.pc2.clone(); }
+    cableObjects[key] = makeCableMesh(start, end, COLORS[key]);
+    state.cables[key] = true;
+    updateStatus();
+    checkAllConnected();
+}
+ 
+function resetCables() {
+    ['rs','sp1','sp2'].forEach(k => {
+        if (cableObjects[k]) { scene.remove(cableObjects[k]); cableObjects[k] = null; }
+        state.cables[k] = false;
+    });
+    state.packets.forEach(p => scene.remove(p.mesh));
+    state.packets.length = 0;
+    state.activeCable = null;
+    document.querySelectorAll('.cableBtn').forEach(b => b.classList.remove('active'));
+    updateStatus();
+    setStatus('Кабелиуд арилгагдлаа. Дахин холбоно уу.', '');
+}
+window.resetCables = resetCables;
+ 
+function selectCable(n) {
+    if (!state.routerOn) { setStatus('Эхлээд Router асаана уу!', 'error'); return; }
+    const keys = ['rs','sp1','sp2'];
+    state.activeCable = keys[n-1];
+    document.querySelectorAll('.cableBtn').forEach((b,i) => {
+        b.classList.toggle('active', i === n-1);
+    });
+    const labels = ['Router→Switch', 'Switch→PC1', 'Switch→PC2'];
+    setStatus(`${labels[n-1]} кабель сонгогдлоо — объект дээр дарна уу`, '');
+    showTooltip(`Холбох объект дээр дарна уу: ${labels[n-1]}`);
+}
+window.selectCable = selectCable;
+ 
+// ===== POWER TOGGLE =====
+function togglePower() {
+    state.routerOn = !state.routerOn;
+    const btn = document.getElementById('powerBtn');
+    const ind = state.indicators['router'];
+    if (state.routerOn) {
+        btn.textContent = 'Router Унтраах';
+        btn.classList.add('on');
+        if (ind) ind.material.color.setHex(0x00ff44);
+        if (state.powerLight) { state.powerLight.material.opacity = 0.8; state.powerLight.material.color.setHex(0x00ff44); }
+        setStatus('Router асаагдлаа! Одоо кабель холбоно уу.', 'success');
+        document.getElementById('powerStatus').textContent = 'Router: Асаалттай';
+    } else {
+        btn.textContent = 'Router Асаах';
+        btn.classList.remove('on');
+        if (ind) ind.material.color.setHex(0x444444);
+        if (state.powerLight) { state.powerLight.material.opacity = 0; }
+        state.packets.forEach(p => scene.remove(p.mesh));
+        state.packets.length = 0;
+        setStatus('Router унтарлаа.', '');
+        document.getElementById('powerStatus').textContent = 'Router: Унтарсан';
+        document.getElementById('dataStatus').textContent = 'Өгөгдөл: Зогссон';
+    }
+}
+window.togglePower = togglePower;
+ 
+function setStatus(msg, type='') {
+    const el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = type;
+}
+function showTooltip(msg) {
+    const el = document.getElementById('tooltip');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(() => el.style.display = 'none', 3000);
+}
+function updateStatus() {
+    const count = Object.values(state.cables).filter(Boolean).length;
+    document.getElementById('cableStatus').textContent = `🔌 Холболт: ${count}/3`;
+}
+function checkAllConnected() {
+    const all = state.cables.rs && state.cables.sp1 && state.cables.sp2;
+    if (all && state.routerOn) {
+        setStatus('Бүх холболт зөв! Мэдээлэл урсаж байна...', 'success');
+        document.getElementById('dataStatus').textContent = 'Өгөгдөл: Идэвхтэй ';
+        ['rs','sp1','sp2'].forEach(k => {
+            if (cableObjects[k]) {
+                cableObjects[k].material.emissive.setHex(COLORS[k]);
+                cableObjects[k].material.emissiveIntensity = 0.4;
+            }
+        });
+        Object.values(state.indicators).forEach(ind => {
+            if (ind) ind.material.color.setHex(0x00ffcc);
+        });
+    }
+}
+ 
+// ===== RAYCASTING (click to connect cable) =====
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const clickableObjects = [];
+ 
+renderer.domElement.addEventListener('click', (e) => {
+    if (!state.activeCable) return;
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(clickableObjects, true);
+    if (hits.length > 0) {
+        const obj = hits[0].object;
+        const nodeName = obj.userData.nodeName;
+        const needed = {
+            rs:  ['router','switch'],
+            sp1: ['switch','pc1'],
+            sp2: ['switch','pc2']
+        }[state.activeCable];
+        if (needed && needed.includes(nodeName)) {
+            drawCable(state.activeCable);
+            state.activeCable = null;
+            document.querySelectorAll('.cableBtn').forEach(b => b.classList.remove('active'));
+            document.getElementById('tooltip').style.display = 'none';
+        } else {
+            setStatus(`Буруу объект! Хэрэгтэй: ${needed ? needed.join(' эсвэл ') : ''}`, 'error');
+        }
+    }
+});
+ 
+// ===== HOVER HIGHLIGHT =====
+const hoverMat = new THREE.MeshBasicMaterial({color: 0xffff00, wireframe: true});
+let hovered = null;
+renderer.domElement.addEventListener('mousemove', (e) => {
+    if (!state.activeCable) return;
+    mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+    raycaster.setFromCamera(mouse, camera);
+    const hits = raycaster.intersectObjects(clickableObjects, true);
+    if (hits.length > 0) {
+        const obj = hits[0].object;
+        if (obj.userData.nodeName) {
+            document.body.style.cursor = 'pointer';
+        }
+    } else {
+        document.body.style.cursor = 'default';
+    }
+});
+ 
 function createWindow(texture) {
     const group = new THREE.Group();
     const frame = new THREE.Mesh(
@@ -143,27 +500,74 @@ loader.load("./lab4.glb",
         const pc1     = model.getObjectByName("pc1");
         const pc2     = model.getObjectByName("pc2");
 
-        if (!router || !switch1 || !pc1 || !pc2) {
-            console.warn("Blender object name шалга"); return;
+       if (!router || !switch1 || !pc1 || !pc2) {
+            const missing = ['router','switch','pc1','pc2'].filter(n => !model.getObjectByName(n));
+            setStatus('GLB-д олдсонгүй: ' + missing.join(', ') + ' — Blender-д нэрийг шалгана уу', 'error');
+            console.warn("Олдоогүй объектууд:", missing);
+            return;
         }
-        const r = new THREE.Vector3(); router.getWorldPosition(r);
-        const s = new THREE.Vector3(); switch1.getWorldPosition(s);
+ 
+        const r  = new THREE.Vector3(); router.getWorldPosition(r);
+        const s  = new THREE.Vector3(); switch1.getWorldPosition(s);
         const p1 = new THREE.Vector3(); pc1.getWorldPosition(p1);
         const p2 = new THREE.Vector3(); pc2.getWorldPosition(p2);
-
-        createCable(r, s, 0xff0000);
-        createCable(s, p1, 0x00ff00);
-        createCable(s, p2, 0x00ff00);
+        state.positions = { router: r, switch1: s, pc1: p1, pc2: p2 };
+ 
+        router.traverse(o  => { o.userData.nodeName = 'router';  clickableObjects.push(o); });
+        switch1.traverse(o => { o.userData.nodeName = 'switch';  clickableObjects.push(o); });
+        pc1.traverse(o     => { o.userData.nodeName = 'pc1';     clickableObjects.push(o); });
+        pc2.traverse(o     => { o.userData.nodeName = 'pc2';     clickableObjects.push(o); });
+ 
+        addIndicator(r, 'router');
+        addIndicator(s, 'switch');
+        addIndicator(p1, 'pc1');
+        addIndicator(p2, 'pc2');
+        createPowerCable(r);
+        setStatus('GLB ачаалагдлаа! Router асаахын тулд [P] дарна уу.', '');
     },
     undefined,
-    (err) => console.error("GLB ачаалж чадсангүй", err)
+    (err) => {
+        console.error("GLB ачаалж чадсангүй:", err);
+        setStatus('lab4.glb файл олдсонгүй — файлыг index.html-тэй нэг хавтсанд байрлуулна уу', 'error');
+    }
 );
 
+window.addEventListener('keydown', e => {
+    if (e.key === 'p' || e.key === 'P') togglePower();
+    if (e.key === '1') selectCable(1);
+    if (e.key === '2') selectCable(2);
+    if (e.key === '3') selectCable(3);
+    if (e.key === 'r' || e.key === 'R') resetCables();
+});
+const clock = new THREE.Clock();
+let glowPhase = 0;
+ 
 renderer.setAnimationLoop(() => {
+    const delta = clock.getDelta();
     controls.update();
+
+    if (state.routerOn) {
+        packetTimer += delta;
+        if (packetTimer > 1.2) {
+            packetTimer = 0;
+            spawnNetworkPackets();
+        }
+    }
+    updatePackets(delta);
+
+    if (state.cables.rs && state.cables.sp1 && state.cables.sp2 && state.routerOn) {
+        glowPhase += delta * 2;
+        const intensity = 0.3 + 0.3 * Math.sin(glowPhase);
+        ['rs','sp1','sp2'].forEach(k => {
+            if (cableObjects[k]) cableObjects[k].material.emissiveIntensity = intensity;
+        });
+    }
+    if (state.routerOn && state.powerLight) {
+        state.powerLight.material.opacity = 0.5 + 0.4 * Math.sin(glowPhase * 1.5);
+    }
+ 
     renderer.render(scene, camera);
 });
-
 window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
