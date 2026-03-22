@@ -2,7 +2,7 @@
 <html lang="mn">
 <head>
 <meta charset="utf-8">
-<title>VR Network Lab</title>
+<title>VR Network Lab - Дээврийн гэрэлтэй</title>
 <style>
     html,body{ margin:0; overflow:hidden; background:#0b1220; font-family:'Segoe UI',Arial,sans-serif; }
     #hud{
@@ -559,6 +559,145 @@ textureLoader.load('./image1.jpg',
 // ===== ГЭРЭЛ ҮҮСГЭХ =====
 createCeilingLights();
 
+// ===== WI-FI АНИМЕЙШН =====
+const wifiGroup = new THREE.Group();
+scene.add(wifiGroup);
+const wifiRings = [];
+let phoneObj = null;
+let connectionLine = null;
+let wifiPhase = 0;
+
+function createWifiRings(routerPos) {
+    wifiRings.forEach(r => wifiGroup.remove(r));
+    wifiRings.length = 0;
+    for (let i = 1; i <= 3; i++) {
+        const ring = new THREE.Mesh(
+            new THREE.TorusGeometry(i * 0.18, 0.012, 8, 32),
+            new THREE.MeshBasicMaterial({
+                color: 0x00d4ff,
+                transparent: true,
+                opacity: 0
+            })
+        );
+        ring.position.copy(routerPos);
+        ring.position.y += 0.3;
+        ring.rotation.x = Math.PI / 2;
+        ring.userData.phase = (i - 1) * 0.6;
+        wifiGroup.add(ring);
+        wifiRings.push(ring);
+    }
+}
+
+function createPhone(routerPos) {
+    const group = new THREE.Group();
+
+    // Утасны бие
+    const body = new THREE.Mesh(
+        new THREE.BoxGeometry(0.08, 0.16, 0.012),
+        new THREE.MeshStandardMaterial({
+            color: 0x111111,
+            roughness: 0.3,
+            metalness: 0.8
+        })
+    );
+    group.add(body);
+
+    // Дэлгэц
+    const screen = new THREE.Mesh(
+        new THREE.BoxGeometry(0.065, 0.13, 0.013),
+        new THREE.MeshBasicMaterial({ color: 0x1a88ff })
+    );
+    screen.position.z = 0.001;
+    group.add(screen);
+
+    // Дэлгэц дээрх Wi-Fi дүрс (3 нуман)
+    for (let i = 1; i <= 3; i++) {
+        const arc = new THREE.Mesh(
+            new THREE.TorusGeometry(i * 0.01, 0.002, 6, 16, Math.PI),
+            new THREE.MeshBasicMaterial({ color: 0xffffff })
+        );
+        arc.position.set(0, -0.02 + i * 0.012, 0.014);
+        arc.rotation.z = Math.PI;
+        group.add(arc);
+    }
+
+    // Wi-Fi холбогдсон заагч цэг
+    const dot = new THREE.Mesh(
+        new THREE.CircleGeometry(0.003, 8),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+    );
+    dot.position.set(0, -0.032, 0.014);
+    group.add(dot);
+
+    // Утасны байрлал — router хажуудаа
+    group.position.set(routerPos.x + 0.5, routerPos.y + 0.15, routerPos.z + 0.3);
+    group.rotation.y = -0.5;
+    scene.add(group);
+    return group;
+}
+
+function createConnectionLine(routerPos, phonePos) {
+    if (connectionLine) scene.remove(connectionLine);
+    const points = [];
+    for (let t = 0; t <= 1; t += 0.04) {
+        points.push(new THREE.Vector3(
+            routerPos.x + (phonePos.x - routerPos.x) * t,
+            routerPos.y + 0.3 + Math.sin(t * Math.PI) * 0.2,
+            routerPos.z + (phonePos.z - routerPos.z) * t
+        ));
+    }
+    connectionLine = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(points),
+        new THREE.LineDashedMaterial({
+            color: 0x00d4ff,
+            dashSize: 0.04,
+            gapSize: 0.03,
+            transparent: true,
+            opacity: 0
+        })
+    );
+    connectionLine.computeLineDistances();
+    scene.add(connectionLine);
+}
+
+function initWifi(routerPos) {
+    createWifiRings(routerPos);
+    phoneObj = createPhone(routerPos);
+    createConnectionLine(routerPos, phoneObj.position);
+}
+
+function updateWifi(delta) {
+    if (!state.routerOn) {
+        wifiRings.forEach(r => { r.material.opacity = 0; });
+        if (connectionLine) connectionLine.material.opacity = 0;
+        return;
+    }
+
+    wifiPhase += delta;
+
+    // Ring долгион анимейшн
+    wifiRings.forEach(ring => {
+        const p = (wifiPhase * 0.9 + ring.userData.phase) % 2;
+        if (p < 1) {
+            ring.scale.setScalar(0.4 + p * 0.9);
+            ring.material.opacity = 0.75 * (1 - p);
+        } else {
+            ring.scale.setScalar(0.4);
+            ring.material.opacity = 0;
+        }
+    });
+
+    // Утас бага зэрэг хөвөх
+    if (phoneObj) {
+        phoneObj.position.y += Math.sin(wifiPhase * 1.5) * 0.0003;
+    }
+
+    // Холболтын шугам анивчих
+    if (connectionLine) {
+        connectionLine.material.opacity = 0.35 + 0.25 * Math.sin(wifiPhase * 2.5);
+    }
+}
+
 // ===== GLB АЧААЛАХ =====
 const loader = new GLTFLoader();
 loader.load("./lab4.glb",
@@ -580,19 +719,20 @@ loader.load("./lab4.glb",
             scene.add(pointLight);
         }
 
-        const router  = model.getObjectByName("router");
+        const router = model.getObjectByName("router");
         if (router) {
             router.traverse(o => {
-        if (o.isMesh) {
-            o.material = o.material.clone();
-            o.material.color.setHex(0x1a3a5c);
-            o.material.emissive.setHex(0x051525);
-            o.material.emissiveIntensity = 0.3;
-            o.material.roughness = 0.4;
-            o.material.metalness = 0.7;
+                if (o.isMesh) {
+                    o.material = o.material.clone();
+                    o.material.color.setHex(0x1a3a5c);
+                    o.material.emissive.setHex(0x051525);
+                    o.material.emissiveIntensity = 0.3;
+                    o.material.roughness = 0.4;
+                    o.material.metalness = 0.7;
+                }
+            });
         }
-    });
-        }
+
         const switch1 = model.getObjectByName("switch");
         const pc1     = model.getObjectByName("pc1");
         const pc2     = model.getObjectByName("pc2");
@@ -620,6 +760,7 @@ loader.load("./lab4.glb",
         addIndicator(p1, 'pc1');
         addIndicator(p2, 'pc2');
         createPowerCable(r);
+        initWifi(r);
         setStatus('GLB ачаалагдлаа! Router асаахын тулд [P] дарна уу.', '');
     },
     undefined,
@@ -658,6 +799,7 @@ renderer.setAnimationLoop(() => {
         }
     }
     updatePackets(delta);
+    updateWifi(delta);
 
     if (state.cables.rs && state.cables.sp1 && state.cables.sp2 && state.routerOn) {
         glowPhase += delta * 2;
