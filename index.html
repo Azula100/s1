@@ -2,7 +2,7 @@
 <html lang="mn">
 <head>
 <meta charset="utf-8">
-<title>VR Network Lab</title>
+<title>VR Network Lab - Дээврийн гэрэлтэй</title>
 <style>
     html,body{ margin:0; overflow:hidden; background:#0b1220; font-family:'Segoe UI',Arial,sans-serif; }
     #hud{
@@ -49,6 +49,18 @@
         padding:6px 14px; border-radius:8px; z-index:10;
         pointer-events:none; display:none;
     }
+    #lightPanel{
+        position:fixed; bottom:20px; right:20px; z-index:20;
+        display:flex; flex-direction:column; gap:8px;
+    }
+    .lightBtn{
+        background:rgba(0,0,0,.8); border:2px solid #ffaa00;
+        color:#ffaa00; padding:8px 14px; border-radius:8px;
+        font-size:12px; cursor:pointer; transition:all 0.3s;
+        width:120px; text-align:center;
+    }
+    .lightBtn.on { background:#ffaa00; color:black; border-color:#ffffff; }
+    .lightBtn:hover { transform:scale(1.05); }
 </style>
 <script type="importmap">
 {
@@ -71,6 +83,7 @@
         [1] Router→Switch кабель<br>
         [2] Switch→PC1 кабель<br>
         [3] Switch→PC2 кабель<br>
+        [L] Дээврийн гэрэл удирдах<br>
         Объект дээр <b>Click</b> → холбох
     </small>
 </div>
@@ -82,6 +95,10 @@
     <button class="cableBtn" id="btn2" onclick="selectCable(2)">🟢 Switch→PC1</button>
     <button class="cableBtn" id="btn3" onclick="selectCable(3)">🔵 Switch→PC2</button>
     <button class="cableBtn" onclick="resetCables()" style="border-color:#ff6666;color:#ff6666">🗑 Арилгах</button>
+</div>
+<div id="lightPanel">
+    <button class="lightBtn" id="lightBtn1" onclick="toggleLight(1)">💡 Гэрэл 1</button>
+    <button class="lightBtn" id="lightBtn2" onclick="toggleLight(2)">💡 Гэрэл 2</button>
 </div>
 
 <script type="module">
@@ -98,6 +115,7 @@ camera.position.set(0, 1.6, 3);
 const renderer = new THREE.WebGLRenderer({antialias:true});
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.xr.enabled = true;
+renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 document.body.appendChild(VRButton.createButton(renderer));
 
@@ -107,10 +125,15 @@ controls.target.set(0, 1, 0);
 controls.update();
 
 scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1));
-scene.add(new THREE.AmbientLight(0xffffff, 3));
+scene.add(new THREE.AmbientLight(0x404040, 2));
+
 const dirLight = new THREE.DirectionalLight(0xffffff, 1);
 dirLight.position.set(3, 10, 10);
+dirLight.castShadow = true;
+dirLight.shadow.mapSize.width = 1024;
+dirLight.shadow.mapSize.height = 1024;
 scene.add(dirLight);
+
 // ===== STATE =====
 const state = {
     routerOn: false,
@@ -122,9 +145,92 @@ const state = {
     powerCable: null,
     powerLight: null,
     socket: null,
-    indicators: {}
+    indicators: {},
+    ceilingLights: { light1: null, light2: null },
+    lightStates: { light1: false, light2: false }
 };
-/* ===== board ===== */
+
+// ===== RAYCASTING =====
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+const clickableObjects = [];
+
+// ===== ДЭЭВРИЙН 2 ГЭРЭЛ =====
+function createCeilingLights() {
+    function createRecessedLight(posX, posY, posZ, index) {
+        const group = new THREE.Group();
+        const bulbMat = new THREE.MeshStandardMaterial({
+            color: 0x888888,
+            emissive: 0x000000
+        });
+        const bulb = new THREE.Mesh(
+            new THREE.SphereGeometry(0.12, 16, 16),
+            bulbMat
+        );
+        bulb.position.y = -0.01;
+        bulb.castShadow = true;
+        bulb.receiveShadow = true;
+        group.add(bulb);
+
+        const lightCone = new THREE.Mesh(
+            new THREE.ConeGeometry(0.5, 0.4, 16),
+            new THREE.MeshBasicMaterial({
+                color: 0xffffaa,
+                transparent: true,
+                opacity: 0,
+                side: THREE.DoubleSide
+            })
+        );
+        lightCone.position.y = -0.25;
+        group.add(lightCone);
+
+        group.position.set(posX, posY, posZ);
+
+        const pointLight = new THREE.PointLight(0xffeedd, 0, 6);
+        pointLight.position.set(posX, posY - 0.2, posZ);
+        pointLight.castShadow = true;
+        scene.add(pointLight);
+
+        state.ceilingLights[`light${index}`] = {
+            group, bulb, cone: lightCone, light: pointLight, bulbMat
+        };
+
+        scene.add(group);
+        return group;
+    }
+
+    createRecessedLight(-0.8, 1.9, -0.8, 1);
+    createRecessedLight(0.8, 2.01, 0.8, 2);
+}
+
+// ===== ГЭРЭЛ АСААХ/УНТРААХ =====
+function toggleLight(lightIndex) {
+    const lightKey = `light${lightIndex}`;
+    const light = state.ceilingLights[lightKey];
+    if (!light) return;
+
+    state.lightStates[lightKey] = !state.lightStates[lightKey];
+    const isOn = state.lightStates[lightKey];
+
+    if (isOn) {
+        light.bulbMat.color.setHex(0xffdd88);
+        light.bulbMat.emissive.setHex(0x442200);
+        light.cone.material.opacity = 0.4;
+        light.light.intensity = 1.5;
+        document.getElementById(`lightBtn${lightIndex}`).classList.add('on');
+    } else {
+        light.bulbMat.color.setHex(0x888888);
+        light.bulbMat.emissive.setHex(0x000000);
+        light.cone.material.opacity = 0;
+        light.light.intensity = 0;
+        document.getElementById(`lightBtn${lightIndex}`).classList.remove('on');
+    }
+
+    setStatus(`Гэрэл ${lightIndex} ${isOn ? 'асааллаа' : 'унтраалаа'}`, 'success');
+}
+window.toggleLight = toggleLight;
+
+// ===== BOARD =====
 const boardGroup = new THREE.Group();
 const board = new THREE.Mesh(
     new THREE.BoxGeometry(1.5, 0.5, 0.05),
@@ -140,23 +246,9 @@ boardGroup.position.set(-1.4, 1.5, 0.05);
 boardGroup.rotation.y = Math.PI / 2;
 scene.add(boardGroup);
 
-/* ===== cable ===== */
-function createCable(start, end, color) {
-    const dir = new THREE.Vector3().subVectors(end, start);
-    const dist = dir.length();
-    const cable = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.02, 0.02, dist, 8),
-        new THREE.MeshStandardMaterial({color})
-    );
-    cable.position.copy(new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5));
-    cable.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
-    scene.add(cable);
-}
-
-// ===== WALL SOCKET  =====
+// ===== WALL SOCKET =====
 function createWallSocket(position) {
     const group = new THREE.Group();
- 
     const body = new THREE.Mesh(
         new THREE.BoxGeometry(0.12, 0.12, 0.04),
         new THREE.MeshStandardMaterial({color: 0xeeeecc})
@@ -178,18 +270,17 @@ function createWallSocket(position) {
     ring.position.z = 0.025;
     group.add(ring);
     state.powerLight = ring;
- 
     group.position.copy(position);
     scene.add(group);
     state.socket = group;
     return group;
 }
 createWallSocket(new THREE.Vector3(-1.38, 0.4, -0.2));
- 
+
 // ===== CABLE CREATION =====
 function makeCableMesh(start, end, color, animated=false) {
     const mid = new THREE.Vector3().addVectors(start, end).multiplyScalar(0.5);
-    mid.y -= 0.15; 
+    mid.y -= 0.15;
     const curve = new THREE.QuadraticBezierCurve3(start, mid, end);
     const points = curve.getPoints(40);
     const geometry = new THREE.TubeGeometry(
@@ -204,14 +295,13 @@ function makeCableMesh(start, end, color, animated=false) {
     scene.add(mesh);
     return mesh;
 }
- 
+
 // ===== POWER CABLE =====
 function createPowerCable(routerPos) {
     const socketPos = new THREE.Vector3(-1.38, 0.4, -0.2);
     const start = new THREE.Vector3(routerPos.x - 0.15, routerPos.y - 0.05, routerPos.z);
     if (state.powerCable) scene.remove(state.powerCable);
     state.powerCable = makeCableMesh(start, socketPos, 0x333333);
-
     const plug = new THREE.Mesh(
         new THREE.BoxGeometry(0.05, 0.05, 0.05),
         new THREE.MeshStandardMaterial({color: 0x222222})
@@ -220,7 +310,7 @@ function createPowerCable(routerPos) {
     plug.position.x += 0.06;
     scene.add(plug);
 }
- 
+
 // ===== NODE INDICATORS =====
 function addIndicator(pos, name) {
     const light = new THREE.Mesh(
@@ -232,7 +322,7 @@ function addIndicator(pos, name) {
     state.indicators[name] = light;
     return light;
 }
- 
+
 // ===== DATA PACKET ANIMATION =====
 function spawnPacket(from, to, color) {
     const geom = new THREE.SphereGeometry(0.04, 8, 8);
@@ -246,7 +336,7 @@ function spawnPacket(from, to, color) {
     scene.add(mesh);
     state.packets.push({mesh, from: from.clone(), to: to.clone(), t: 0, speed: 0.008 + Math.random()*0.004});
 }
- 
+
 function updatePackets(delta) {
     for (let i = state.packets.length - 1; i >= 0; i--) {
         const p = state.packets[i];
@@ -259,7 +349,7 @@ function updatePackets(delta) {
         }
     }
 }
- 
+
 let packetTimer = 0;
 function spawnNetworkPackets() {
     if (!state.routerOn) return;
@@ -268,12 +358,12 @@ function spawnNetworkPackets() {
     if (allConnected && p.router && p.switch1 && p.pc1 && p.pc2) {
         spawnPacket(p.router, p.switch1, 0xff3300);
         setTimeout(() => {
-            if(state.cables.sp1) spawnPacket(p.switch1.clone(), p.pc1.clone(), 0x00ff88);
+            if (state.cables.sp1) spawnPacket(p.switch1.clone(), p.pc1.clone(), 0x00ff88);
         }, 400);
         setTimeout(() => {
             spawnPacket(p.router.clone(), p.switch1.clone(), 0xff6600);
             setTimeout(() => {
-                if(state.cables.sp2) spawnPacket(p.switch1.clone(), p.pc2.clone(), 0x0088ff);
+                if (state.cables.sp2) spawnPacket(p.switch1.clone(), p.pc2.clone(), 0x0088ff);
             }, 400);
         }, 800);
     } else {
@@ -282,11 +372,11 @@ function spawnNetworkPackets() {
         }
     }
 }
- 
-// ===== CABLE LINE OBJECTS (draggable logic simplified to click-based) =====
+
+// ===== CABLE LINE OBJECTS =====
 const cableObjects = { rs: null, sp1: null, sp2: null };
 const COLORS = { rs: 0xff2200, sp1: 0x00cc44, sp2: 0x2266ff };
- 
+
 function drawCable(key) {
     const p = state.positions;
     if (!p.router || !p.switch1 || !p.pc1 || !p.pc2) return;
@@ -300,7 +390,7 @@ function drawCable(key) {
     updateStatus();
     checkAllConnected();
 }
- 
+
 function resetCables() {
     ['rs','sp1','sp2'].forEach(k => {
         if (cableObjects[k]) { scene.remove(cableObjects[k]); cableObjects[k] = null; }
@@ -314,7 +404,7 @@ function resetCables() {
     setStatus('Кабелиуд арилгагдлаа. Дахин холбоно уу.', '');
 }
 window.resetCables = resetCables;
- 
+
 function selectCable(n) {
     if (!state.routerOn) { setStatus('Эхлээд Router асаана уу!', 'error'); return; }
     const keys = ['rs','sp1','sp2'];
@@ -327,7 +417,7 @@ function selectCable(n) {
     showTooltip(`Холбох объект дээр дарна уу: ${labels[n-1]}`);
 }
 window.selectCable = selectCable;
- 
+
 // ===== POWER TOGGLE =====
 function togglePower() {
     state.routerOn = !state.routerOn;
@@ -353,7 +443,7 @@ function togglePower() {
     }
 }
 window.togglePower = togglePower;
- 
+
 function setStatus(msg, type='') {
     const el = document.getElementById('status');
     el.textContent = msg;
@@ -373,7 +463,7 @@ function checkAllConnected() {
     const all = state.cables.rs && state.cables.sp1 && state.cables.sp2;
     if (all && state.routerOn) {
         setStatus('Бүх холболт зөв! Мэдээлэл урсаж байна...', 'success');
-        document.getElementById('dataStatus').textContent = 'Өгөгдөл: Идэвхтэй ';
+        document.getElementById('dataStatus').textContent = 'Өгөгдөл: Идэвхтэй';
         ['rs','sp1','sp2'].forEach(k => {
             if (cableObjects[k]) {
                 cableObjects[k].material.emissive.setHex(COLORS[k]);
@@ -385,56 +475,48 @@ function checkAllConnected() {
         });
     }
 }
- 
-// ===== RAYCASTING (click to connect cable) =====
-const raycaster = new THREE.Raycaster();
-const mouse = new THREE.Vector2();
-const clickableObjects = [];
- 
+
+// ===== CLICK =====
 renderer.domElement.addEventListener('click', (e) => {
-    if (!state.activeCable) return;
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(clickableObjects, true);
     if (hits.length > 0) {
         const obj = hits[0].object;
-        const nodeName = obj.userData.nodeName;
-        const needed = {
-            rs:  ['router','switch'],
-            sp1: ['switch','pc1'],
-            sp2: ['switch','pc2']
-        }[state.activeCable];
-        if (needed && needed.includes(nodeName)) {
-            drawCable(state.activeCable);
-            state.activeCable = null;
-            document.querySelectorAll('.cableBtn').forEach(b => b.classList.remove('active'));
-            document.getElementById('tooltip').style.display = 'none';
-        } else {
-            setStatus(`Буруу объект! Хэрэгтэй: ${needed ? needed.join(' эсвэл ') : ''}`, 'error');
+        const userData = obj.userData;
+        if (state.activeCable && userData.nodeName) {
+            const needed = {
+                rs:  ['router','switch'],
+                sp1: ['switch','pc1'],
+                sp2: ['switch','pc2']
+            }[state.activeCable];
+            if (needed && needed.includes(userData.nodeName)) {
+                drawCable(state.activeCable);
+                state.activeCable = null;
+                document.querySelectorAll('.cableBtn').forEach(b => b.classList.remove('active'));
+                document.getElementById('tooltip').style.display = 'none';
+            } else {
+                setStatus(`Буруу объект! Хэрэгтэй: ${needed ? needed.join(' эсвэл ') : ''}`, 'error');
+            }
         }
     }
 });
- 
-// ===== HOVER HIGHLIGHT =====
-const hoverMat = new THREE.MeshBasicMaterial({color: 0xffff00, wireframe: true});
-let hovered = null;
+
+// ===== HOVER =====
 renderer.domElement.addEventListener('mousemove', (e) => {
-    if (!state.activeCable) return;
     mouse.x = (e.clientX / window.innerWidth) * 2 - 1;
     mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
     raycaster.setFromCamera(mouse, camera);
     const hits = raycaster.intersectObjects(clickableObjects, true);
-    if (hits.length > 0) {
-        const obj = hits[0].object;
-        if (obj.userData.nodeName) {
-            document.body.style.cursor = 'pointer';
-        }
+    if (hits.length > 0 && hits[0].object.userData.nodeName) {
+        document.body.style.cursor = 'pointer';
     } else {
         document.body.style.cursor = 'default';
     }
 });
- 
+
+// ===== WINDOW =====
 function createWindow(texture) {
     const group = new THREE.Group();
     const frame = new THREE.Mesh(
@@ -444,45 +526,40 @@ function createWindow(texture) {
     group.add(frame);
     const glass = new THREE.Mesh(
         new THREE.PlaneGeometry(0.75, 0.55),
-        new THREE.MeshBasicMaterial({
-            map: texture,
-            side: THREE.DoubleSide
-        })
+        new THREE.MeshBasicMaterial({map: texture, side: THREE.DoubleSide})
     );
-    glass.position.z = 0.04; 
+    glass.position.z = 0.04;
     group.add(glass);
     return group;
 }
 
 const textureLoader = new THREE.TextureLoader();
-textureLoader.load(
-    './image1.jpg',
+textureLoader.load('./image1.jpg',
     function(texture) {
         texture.colorSpace = THREE.SRGBColorSpace;
-        console.log("Зураг амжилттай ачаалагдлаа!");
         const win1 = createWindow(texture);
         win1.position.set(-0.7, 1.6, -1.4);
         scene.add(win1);
-        const win2 = createWindow(texture.clone ? texture : texture);
+        const win2 = createWindow(texture);
         win2.position.set(0.3, 1.6, -1.4);
-        win2.rotation.y = 0; 
         scene.add(win2);
-
         const win3 = createWindow(texture);
         win3.position.set(0.7, 1.6, 1.4);
         win3.rotation.y = Math.PI;
         scene.add(win3);
-        const win4 = createWindow(texture.clone ? texture : texture);
+        const win4 = createWindow(texture);
         win4.position.set(-0.3, 1.6, 1.4);
-        win4.rotation.y = Math.PI; 
+        win4.rotation.y = Math.PI;
         scene.add(win4);
     },
     undefined,
-    function(err) {
-        console.error("Зураг ачаалахад алдаа:", err);
-    }
+    (err) => console.error("Зураг ачаалахад алдаа:", err)
 );
 
+// ===== ГЭРЭЛ ҮҮСГЭХ =====
+createCeilingLights();
+
+// ===== GLB АЧААЛАХ =====
 const loader = new GLTFLoader();
 loader.load("./lab4.glb",
     function(gltf) {
@@ -495,29 +572,49 @@ loader.load("./lab4.glb",
         model.position.z -= center.z;
         scene.add(model);
 
+        const deever = model.getObjectByName("deever");
+        if (deever) {
+            const pointLight = new THREE.PointLight(0xffaa00, 2, 30);
+            pointLight.position.copy(deever.position);
+            pointLight.position.y += 1.5;
+            scene.add(pointLight);
+        }
+
         const router  = model.getObjectByName("router");
+        if (router) {
+            router.traverse(o => {
+        if (o.isMesh) {
+            o.material = o.material.clone();
+            o.material.color.setHex(0x1a3a5c);
+            o.material.emissive.setHex(0x051525);
+            o.material.emissiveIntensity = 0.3;
+            o.material.roughness = 0.4;
+            o.material.metalness = 0.7;
+        }
+    });
+        }
         const switch1 = model.getObjectByName("switch");
         const pc1     = model.getObjectByName("pc1");
         const pc2     = model.getObjectByName("pc2");
 
-       if (!router || !switch1 || !pc1 || !pc2) {
+        if (!router || !switch1 || !pc1 || !pc2) {
             const missing = ['router','switch','pc1','pc2'].filter(n => !model.getObjectByName(n));
             setStatus('GLB-д олдсонгүй: ' + missing.join(', ') + ' — Blender-д нэрийг шалгана уу', 'error');
             console.warn("Олдоогүй объектууд:", missing);
             return;
         }
- 
+
         const r  = new THREE.Vector3(); router.getWorldPosition(r);
         const s  = new THREE.Vector3(); switch1.getWorldPosition(s);
         const p1 = new THREE.Vector3(); pc1.getWorldPosition(p1);
         const p2 = new THREE.Vector3(); pc2.getWorldPosition(p2);
         state.positions = { router: r, switch1: s, pc1: p1, pc2: p2 };
- 
+
         router.traverse(o  => { o.userData.nodeName = 'router';  clickableObjects.push(o); });
         switch1.traverse(o => { o.userData.nodeName = 'switch';  clickableObjects.push(o); });
         pc1.traverse(o     => { o.userData.nodeName = 'pc1';     clickableObjects.push(o); });
         pc2.traverse(o     => { o.userData.nodeName = 'pc2';     clickableObjects.push(o); });
- 
+
         addIndicator(r, 'router');
         addIndicator(s, 'switch');
         addIndicator(p1, 'pc1');
@@ -532,16 +629,23 @@ loader.load("./lab4.glb",
     }
 );
 
+// ===== KEYBOARD =====
 window.addEventListener('keydown', e => {
     if (e.key === 'p' || e.key === 'P') togglePower();
     if (e.key === '1') selectCable(1);
     if (e.key === '2') selectCable(2);
     if (e.key === '3') selectCable(3);
     if (e.key === 'r' || e.key === 'R') resetCables();
+    if (e.key === 'l' || e.key === 'L') {
+        toggleLight(1);
+        setTimeout(() => toggleLight(2), 200);
+    }
 });
+
+// ===== ANIMATION LOOP =====
 const clock = new THREE.Clock();
 let glowPhase = 0;
- 
+
 renderer.setAnimationLoop(() => {
     const delta = clock.getDelta();
     controls.update();
@@ -565,9 +669,10 @@ renderer.setAnimationLoop(() => {
     if (state.routerOn && state.powerLight) {
         state.powerLight.material.opacity = 0.5 + 0.4 * Math.sin(glowPhase * 1.5);
     }
- 
+
     renderer.render(scene, camera);
 });
+
 window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
