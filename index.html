@@ -853,6 +853,9 @@ loader.load('./lab4.glb',gltf=>{
   const hana2   =model.getObjectByName('hana2');
   const hana3   =model.getObjectByName('hana3');
   const shal    =model.getObjectByName('shal');
+  const shiree1 = model.getObjectByName('shiree1')
+  const sandal1 = model.getObjectByName('sandal1')
+  const sandal2 = model.getObjectByName('sandal2')
 
   if(!router||!switch1||!pc1||!pc2){setStatus('GLB: router/switch/pc1/pc2 нэр олдсонгүй','error');return;}
 
@@ -885,6 +888,24 @@ loader.load('./lab4.glb',gltf=>{
   applyTex(deever,texWall,0.9,0.0); applyTex(hana1,texWall,0.9,0.0);
   applyTex(hana2,texWall,0.9,0.0); applyTex(hana3,texWall,0.9,0.0);
   applyTex(shal,texShal,0.8,0.1);
+
+  const sandalColor = new THREE.Color(0x8B5A2B); 
+  const shireeColor = new THREE.Color(0xD2B48C);
+  function applyColor(obj, color) {
+    if (!obj) return;
+    obj.traverse((child) => {
+      if (child.isMesh) {
+        child.material = new THREE.MeshStandardMaterial({
+          color: color,
+          roughness: 0.6,
+          metalness: 0.2,
+        });
+      }
+    });
+  }
+  applyColor(sandal1, sandalColor);
+  applyColor(sandal2, sandalColor);
+  applyColor(shiree1, shireeColor);
 
   const r=new THREE.Vector3(),s=new THREE.Vector3(),p1=new THREE.Vector3(),p2=new THREE.Vector3();
   router.getWorldPosition(r); switch1.getWorldPosition(s); pc1.getWorldPosition(p1); pc2.getWorldPosition(p2);
