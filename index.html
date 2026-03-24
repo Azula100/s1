@@ -36,6 +36,23 @@
   #scoreBoard{position:fixed;top:10px;right:160px;z-index:20;background:rgba(0,0,0,.82);border:1px solid rgba(0,200,255,0.3);color:white;padding:10px 16px;border-radius:10px;font-size:12px;line-height:1.8;min-width:170px;}
   #scoreBoard .ok{color:#00ff88;}
   #scoreBoard .bad{color:#ff4444;}
+  /* VR EXIT BUTTON — зөвхөн VR горимд харагдана */
+  #vrExitBtn{
+    display:none;
+    position:fixed;bottom:20px;left:50%;transform:translateX(-50%);
+    z-index:9999;background:rgba(180,0,0,.92);
+    border:2px solid #ff6666;color:white;
+    padding:14px 36px;border-radius:14px;
+    font-size:16px;font-weight:700;cursor:pointer;
+    letter-spacing:.5px;transition:all 0.3s;
+    box-shadow:0 0 24px rgba(255,60,60,0.5);
+  }
+  #vrExitBtn:hover{background:rgba(220,0,0,.98);transform:translateX(-50%) scale(1.05);}
+  /* VR горимд орсон үед харуулах */
+  body.vr-active #vrExitBtn{display:block;}
+  /* VR горимд орсон үед desktop UI нуух (ачааллыг хөнгөлнө) */
+  body.vr-active #cableTypePanel,
+  body.vr-active #connPanel{opacity:0;pointer-events:none;}
 </style>
 <script type="importmap">
 {
@@ -107,6 +124,9 @@
   <button class="lightBtn on" id="lightBtn2" onclick="toggleLight(2)">💡 Гэрэл 2</button>
 </div>
 
+<!-- VR EXIT BUTTON — VR горимд орсон үед автоматаар харагдана -->
+<button id="vrExitBtn" onclick="exitVR()">🚪 VR-с гарах</button>
+
 <script type="module">
 import * as THREE from "three";
 import {GLTFLoader}               from "three/addons/loaders/GLTFLoader.js";
@@ -157,6 +177,27 @@ const playerRig = new THREE.Group();
 playerRig.add(camera);
 scene.add(playerRig);
 state.playerRig = playerRig;
+
+// ── VR SESSION: горимд орох/гарах ──
+renderer.xr.addEventListener('sessionstart', () => {
+  document.body.classList.add('vr-active');
+  setStatus('VR горимд орлоо! A=Router B=Reset X=Straight Y=Crossover Trigger=Холбох','success');
+});
+renderer.xr.addEventListener('sessionend', () => {
+  document.body.classList.remove('vr-active');
+  setStatus('VR-с гарлаа.','');
+});
+
+// ── VR-С ГАРАХ ──
+function exitVR() {
+  const session = renderer.xr.getSession();
+  if (session) { session.end(); }
+  else { setStatus('VR session идэвхгүй.','error'); }
+}
+window.exitVR = exitVR;
+
+// ── GAMEPAD: Oculus/Meta — Menu товч (index 3) VR-с гарах ──
+// (handleVRGamepad дотор дуудагдана)
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
@@ -396,7 +437,7 @@ function onVRGripUp(){
 }
 
 // ── VR GAMEPAD ──
-const vrBtns={A:false,B:false,X:false,Y:false};
+const vrBtns={A:false,B:false,X:false,Y:false,MENU:false};
 function handleVRGamepad(){
   const session=renderer.xr.getSession(); if(!session) return;
   session.inputSources.forEach(src=>{
@@ -405,6 +446,9 @@ function handleVRGamepad(){
     if(h==='right'){
       if(gp.buttons[4]?.pressed&&!vrBtns.A){vrBtns.A=true;togglePower();}else if(!gp.buttons[4]?.pressed)vrBtns.A=false;
       if(gp.buttons[5]?.pressed&&!vrBtns.B){vrBtns.B=true;resetCables();}else if(!gp.buttons[5]?.pressed)vrBtns.B=false;
+      // Thumbstick дарах (index 3) → VR-с гарах
+      if(!vrBtns.MENU && gp.buttons[3]?.pressed){vrBtns.MENU=true; exitVR();}
+      else if(!gp.buttons[3]?.pressed) vrBtns.MENU=false;
     }
     if(h==='left'){
       if(gp.buttons[4]?.pressed&&!vrBtns.X){vrBtns.X=true;setCableType('straight');}else if(!gp.buttons[4]?.pressed)vrBtns.X=false;
@@ -809,9 +853,6 @@ loader.load('./lab4.glb',gltf=>{
   const hana2   =model.getObjectByName('hana2');
   const hana3   =model.getObjectByName('hana3');
   const shal    =model.getObjectByName('shal');
-  const shiree1 = model.getObjectByName('shiree1')
-  const sandal1 = model.getObjectByName('sandal1')
-  const sandal2 = model.getObjectByName('sandal2')
 
   if(!router||!switch1||!pc1||!pc2){setStatus('GLB: router/switch/pc1/pc2 нэр олдсонгүй','error');return;}
 
@@ -844,24 +885,6 @@ loader.load('./lab4.glb',gltf=>{
   applyTex(deever,texWall,0.9,0.0); applyTex(hana1,texWall,0.9,0.0);
   applyTex(hana2,texWall,0.9,0.0); applyTex(hana3,texWall,0.9,0.0);
   applyTex(shal,texShal,0.8,0.1);
-
-  const sandalColor = new THREE.Color(0x8B5A2B); 
-  const shireeColor = new THREE.Color(0xD2B48C);
-  function applyColor(obj, color) {
-    if (!obj) return;
-    obj.traverse((child) => {
-      if (child.isMesh) {
-        child.material = new THREE.MeshStandardMaterial({
-          color: color,
-          roughness: 0.6,
-          metalness: 0.2,
-        });
-      }
-    });
-  }
-  applyColor(sandal1, sandalColor);
-  applyColor(sandal2, sandalColor);
-  applyColor(shiree1, shireeColor);
 
   const r=new THREE.Vector3(),s=new THREE.Vector3(),p1=new THREE.Vector3(),p2=new THREE.Vector3();
   router.getWorldPosition(r); switch1.getWorldPosition(s); pc1.getWorldPosition(p1); pc2.getWorldPosition(p2);
